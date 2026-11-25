@@ -1,0 +1,691 @@
+{
+  "name": "Inbox agent for an SME (n8n demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "label:demo-agent",
+          "readStatus": "unread"
+        },
+        "options": {}
+      },
+      "id": "16a7e757-f937-40d8-b158-b2541778ca36",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -64,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=From: {{ $json.from.text }}\nSubject: {{ $json.subject }}\nMessage ID: {{ $json.id }}\nThread ID: {{ $json.threadId }}\n\nBody:\n{{ $json.text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the inbox assistant of a Belgian SME. For each email:\n1. Detect the language (French or Dutch) and ALWAYS write in that language.\n2. Classify the email in exactly one category: APPOINTMENT, QUOTE_REQUEST, COMPLAINT or OTHER.\n3. APPOINTMENT: check Google Calendar (tool get_calendar_events) for free 30-minute slots in the next 5 working days between 09:00 and 17:00 (Europe/Brussels). Create a polite reply DRAFT (tool create_reply_draft) proposing exactly 3 slots.\n4. QUOTE_REQUEST: extract company, contact name, email, what they need, quantity/budget and deadline (use \"unknown\" if missing). Append this to the \"Leads\" sheet (tool append_lead), add the label \"sales\" (tool add_label_sales), and create a short reply DRAFT (tool create_reply_draft) confirming we received the request and will come back within 2 working days.\n5. COMPLAINT: do NOT reply to the customer. Add the label \"dringend\" (tool add_label_dringend) so a human handles it personally.\n6. OTHER: do nothing except logging.\nNever send emails. Never invent prices, promises or dates that are not in the calendar. If you are unsure, choose the safest option and set confidence to low.\nAt the end, return JSON: language, category, action_taken, reasoning, confidence."
+        }
+      },
+      "id": "a96c4cd2-c6b5-4563-8e15-a650ee4f50a5",
+      "name": "Inbox Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1008,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-6-luna"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "d47d9544-555a-4c9f-bfe4-37b47429167b",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        496,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "YOUR_CALENDAR_ID",
+          "mode": "id"
+        },
+        "limit": 100,
+        "timeMin": "={{ $now.toISO() }}",
+        "timeMax": "={{ $now.plus({ days: 7 }).toISO() }}",
+        "options": {
+          "orderBy": "startTime",
+          "timeZone": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Europe/Brussels"
+          }
+        }
+      },
+      "id": "87f59df4-990c-439d-ad13-d631af958efa",
+      "name": "get_calendar_events",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.4,
+      "position": [
+        1504,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('subject', 'Reply subject, start with \"Re: \" followed by the original subject') }}",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('message', 'Plain text body of the reply draft, in the language of the customer email') }}",
+        "options": {
+          "threadId": "={{ $('Gmail Trigger').item.json.threadId }}",
+          "sendTo": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('recipient_email', 'Email address of the original sender') }}"
+        }
+      },
+      "id": "29ad6512-692f-4303-a18f-5be2cbce1ff1",
+      "name": "create_reply_draft",
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": [
+          "YOUR_LABEL_ID_SALES"
+        ]
+      },
+      "id": "942e3e9c-accc-4501-bd16-2d1b5cfdf94e",
+      "name": "add_label_sales",
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [
+        2496,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": [
+          "YOUR_LABEL_ID_DRINGEND"
+        ]
+      },
+      "id": "bce2f4d2-ce6b-468d-9960-c245890ad945",
+      "name": "add_label_dringend",
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [
+        3008,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "datum": "={{ $now.toFormat('yyyy-MM-dd') }}",
+            "bedrijf": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('bedrijf', ``, 'string') }}",
+            "naam": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('naam', ``, 'string') }}",
+            "email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('email', ``, 'string') }}",
+            "vraag": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('vraag', ``, 'string') }}",
+            "budget": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('budget', ``, 'string') }}",
+            "deadline": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('deadline', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "datum",
+              "displayName": "datum",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bedrijf",
+              "displayName": "bedrijf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "naam",
+              "displayName": "naam",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vraag",
+              "displayName": "vraag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "deadline",
+              "displayName": "deadline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6cc07972-47d1-4eb2-a47f-eb0c82e74c6f",
+      "name": "append_lead",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        3504,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\"language\":\"nl\",\"category\":\"APPOINTMENT\",\"action_taken\":\"Draft reply created with 3 slots\",\"reasoning\":\"One sentence explaining the decision.\",\"confidence\":\"high\"}"
+      },
+      "id": "84c750f1-f03d-40f0-89e5-2bfe5914813b",
+      "name": "Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1008,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agent log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tijd": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "afzender": "={{ $('Gmail Trigger').item.json.from.text }}",
+            "onderwerp": "={{ $('Gmail Trigger').item.json.subject }}",
+            "taal": "={{ $json.output.language }}",
+            "categorie": "={{ $json.output.category }}",
+            "actie": "={{ $json.output.action_taken }}",
+            "redenering": "={{ $json.output.reasoning }}",
+            "zekerheid": "={{ $json.output.confidence }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "tijd",
+              "displayName": "tijd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "afzender",
+              "displayName": "afzender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "onderwerp",
+              "displayName": "onderwerp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "taal",
+              "displayName": "taal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "categorie",
+              "displayName": "categorie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actie",
+              "displayName": "actie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "redenering",
+              "displayName": "redenering",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "zekerheid",
+              "displayName": "zekerheid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "8413b109-bc0a-4184-8422-5c6cf7941a03",
+      "name": "Log to Agent log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1600,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}"
+      },
+      "id": "cce7e218-7895-49fa-902b-785accdb1190",
+      "name": "Mark as read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2208,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Inbox agent voor een KMO\n1. Een Gmail Trigger leest elke minuut ongelezen mails met het label \"demo-agent\".\n2. Een AI-agent detecteert de taal (FR/NL) en kiest: APPOINTMENT, QUOTE_REQUEST, COMPLAINT of OTHER.\n3. Afhankelijk van de categorie gebruikt de agent zijn tools: agenda, concept-antwoord, labels of de Leads-sheet.\n4. Elke mail wordt gelogd in de sheet \"Agent log\" en daarna als gelezen gemarkeerd.\n5. Human-in-the-loop: de agent maakt alleen concepten, een mens keurt goed. De agent verstuurt nooit een mail.",
+        "height": 280,
+        "width": 1100,
+        "color": 4
+      },
+      "id": "7025a0e1-ce79-434e-a451-7e519f7e20de",
+      "name": "Overzicht",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze stap haalt elke minuut nieuwe, ongelezen mails op met het label \"demo-agent\". Zo grijpt de agent alleen in op mails die we bewust doorgeven. Bij een echte klant zou dit het label of de map van de gedeelde inbox zijn.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "69193da8-bd3f-45e2-acce-425ad547fc58",
+      "name": "Notitie Trigger",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "De AI-agent leest de mail, bepaalt taal en categorie en kiest zelf de juiste tools. Dit is de hersenen van de flow en vervangt handmatig sorteren. Bij een echte klant stemmen we de prompt af op hun diensten en toon.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "ccad7ab6-1151-409c-b8f7-4d748b007242",
+      "name": "Notitie Agent",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        976,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Dit taalmodel (OpenAI) geeft de agent zijn intelligentie. Het model is inwisselbaar. Bij een echt project kiezen we het model op basis van kwaliteit, kost en privacy.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "1c7ea29b-b9a0-4fd0-ba08-704a06842009",
+      "name": "Notitie Model",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze tool leest de Google Agenda voor de komende dagen. Zo kan de agent vrije slots van 30 minuten tussen 09:00 en 17:00 voorstellen. Bij een echte klant koppelen we de agenda van de juiste medewerker.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "62e38fd8-2cb7-4924-bfbd-7319dfee9b33",
+      "name": "Notitie Agenda",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze tool maakt een antwoord als Gmail-concept in dezelfde thread. Er wordt niets verstuurd, een mens leest het eerst na. Bij een echte klant controleert een medewerker het concept en drukt zelf op verzenden.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "14ccb31e-07f6-4267-b5d6-a84f115d0f9d",
+      "name": "Notitie Concept",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1984,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze tool zet het label \"sales\" op de mail. Zo zien de verkopers meteen welke mails offerteaanvragen zijn. Bij een echte klant kunnen labels ook een melding of taak in het CRM starten.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "a4af561d-9620-40ee-b741-7d7e6fb7c2b3",
+      "name": "Notitie Label sales",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze tool zet het label \"dringend\" op een klacht. De agent antwoordt niet zelf, zodat een mens de klant persoonlijk opvolgt. Bij een echte klant kan hier ook een melding naar de verantwoordelijke bij.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "d7518240-3710-4028-af5a-23ab97373db1",
+      "name": "Notitie Label dringend",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze tool voegt een rij toe aan de sheet \"Leads\" met bedrijf, contact, behoefte, hoeveelheid/budget en deadline. Zo gaat geen offerteaanvraag verloren. Bij een echte klant kan dit later een CRM zoals HubSpot zijn.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "c462a854-f42e-49f4-9666-8c75aa598cac",
+      "name": "Notitie Leads",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3488,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze stap schrijft per mail een logrij weg: tijd, afzender, onderwerp, taal, categorie, actie, reden en zekerheid. Zo is elke beslissing van de agent controleerbaar. Bij een echte klant gebruikt men dit om de agent te evalueren en bij te sturen.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "9afd72c2-6896-473c-b4b0-47b75db93473",
+      "name": "Notitie Log",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Deze stap markeert de mail als gelezen na de verwerking. Zo wordt dezelfde mail nooit twee keer door de agent behandeld. Bij een echte klant voorkomt dit dubbele concepten en dubbele leads.",
+        "height": 170,
+        "width": 420,
+        "color": 7
+      },
+      "id": "83d497e0-9e32-4a08-980d-aff19ed6700f",
+      "name": "Notitie Gelezen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2176,
+        480
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbox Agent": {
+      "main": [
+        [
+          {
+            "node": "Log to Agent log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_calendar_events": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_reply_draft": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add_label_sales": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add_label_dringend": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "append_lead": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Inbox Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Agent log": {
+      "main": [
+        [
+          {
+            "node": "Mark as read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {},
+  "nodeGroups": [],
+  "tags": []
+}
